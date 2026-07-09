@@ -1,5 +1,9 @@
 # pi-tts
 
+> **Transparency:** This extension was generated with AI assistance
+> ("vibeslopped"). The repository owner did not personally write the code.
+> See [`DEV.md`](DEV.md) for how it works and how to modify it.
+
 A [pi](https://github.com/badlogic/pi) extension that exposes the local `tts`
 command (Kokoro/piper-backed neural TTS) as a typed `tts` tool the agent can
 call directly.
@@ -9,11 +13,11 @@ call directly.
 This repo is a pi package. Install it with pi (no manual symlinks needed):
 
 ```bash
-# HTTPS (works for public clones on machines with git credentials)
-pi install git:github.com/ekenberg/pi-tts@main
+# SSH (reliable on the owner's machine)
+pi install git:git@github.com:ekenberg/pi-tts@live
 
-# SSH (use this if HTTPS credential prompts fail)
-pi install git:git@github.com:ekenberg/pi-tts@main
+# HTTPS (works for the public repo on machines with git credentials)
+pi install git:github.com/ekenberg/pi-tts@live
 ```
 
 Then reload extensions in your running session:
@@ -22,10 +26,10 @@ Then reload extensions in your running session:
 /reload
 ```
 
-To update later:
+Update later:
 
 ```bash
-pi update --extensions        # reconcile the pinned ref
+pi update --extensions
 ```
 
 ## Requirements
@@ -64,19 +68,4 @@ pi update --extensions        # reconcile the pinned ref
 
 ## Development
 
-`pi install` clones this repo to pi's managed git location:
-
-```
-~/.pi/agent/git/github.com/ekenberg/pi-tts/
-```
-
-That clone is what pi actually loads, so the fastest edit loop is:
-
-1. Edit `~/.pi/agent/git/github.com/ekenberg/pi-tts/tts.ts`.
-2. `/reload` in pi and test (no reinstall needed — `/reload` re-reads the clone).
-3. Repeat until happy.
-4. In the clone dir: `git commit -am "..." && git push`.
-5. In your own working copy (e.g. this syncthing dir): `git pull` to mirror.
-
-Both directories track `origin/main`, so either can be the commit/push point.
-Keep edits in one place at a time to avoid divergence.
+See [`DEV.md`](DEV.md) for the repo layout, branches, and the edit loop.
