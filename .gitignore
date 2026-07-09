@@ -1,3 +1,7 @@
 # editor / OS
 *.swp
 .DS_Store
+
+# pi subagent artifacts / deps
+.pi-subagents/
+node_modules/

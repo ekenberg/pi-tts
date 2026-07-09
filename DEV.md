@@ -6,7 +6,7 @@ the day-to-day loop.
 ## Repo layout — two repos, one remote
 
 - **Source repo (this directory):** `/home/johan/srv/syncthing/projects/pi-tts`
-  The original `git init`, the one you edit and commit to. Source of truth.
+  The original `git init`; edit here OR in the clone below — the clone is what pi loads at runtime.
 - **pi's managed clone:** `~/.pi/agent/git/github.com/ekenberg/pi-tts/`
   Created by `pi install`. This is what pi actually loads at runtime.
 

@@ -145,10 +145,9 @@ function runTts(
 
     child.stdout?.on("data", (d) => (out += d));
     child.stderr?.on("data", (d) => (err += d));
-    if (stdinText) {
-      child.stdin?.write(stdinText);
-      child.stdin?.end();
-    }
+    // Always close stdin so `tts` sees EOF and exits even when text is empty.
+    if (stdinText) child.stdin?.write(stdinText);
+    child.stdin?.end();
 
     child.on("error", (e) =>
       resolve({
@@ -158,6 +157,11 @@ function runTts(
       }),
     );
     child.on("close", (code) => {
+      // code === null means the process was aborted (e.g. user cancelled).
+      if (code === null) {
+        resolve({ content: [{ type: "text", text: `${errorPrefix}: aborted.` }], details: {} });
+        return;
+      }
       if (code !== 0) {
         resolve({
           content: [{ type: "text", text: `${errorPrefix} (exit ${code}): ${err || out || "no output"}` }],
