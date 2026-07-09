@@ -1,0 +1,13 @@
+{
+  "name": "pi-tts",
+  "version": "1.0.0",
+  "description": "pi extension exposing the local tts command as a typed tool",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./tts.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
