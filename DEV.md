@@ -35,7 +35,7 @@ Clean re-clone if needed: `pi update --extensions`.
 ## The edit loop
 
 1. Edit the clone (what pi loads):
-   `~/.pi/agent/git/github.com/ekenberg/pi-tts/tts.ts`
+   `~/.pi/agent/git/github.com/ekenberg/pi-tts/index.ts`
 2. `/reload` in pi, then test (e.g. "say hello using af_sarah").
    No reinstall needed — `/reload` re-reads the clone.
 3. Repeat until happy.

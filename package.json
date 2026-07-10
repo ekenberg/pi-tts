@@ -4,7 +4,7 @@
   "description": "pi extension exposing the local tts command as a typed tool",
   "keywords": ["pi-package"],
   "pi": {
-    "extensions": ["./tts.ts"]
+    "extensions": ["./index.ts"]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
