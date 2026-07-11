@@ -47,8 +47,12 @@ pi update --extensions
 - **Barge-in**: a new `tts` call interrupts current speech; `queue: true`
   plays it after the current one instead; `stop: true` stops everything;
   `skip: true` jumps to the next queued item (keeps the queue)
+- **Pause / resume**: `pause: true` / `resume: true` (or the `/tts-pause` /
+  `/tts-resume` slash commands) freeze and continue the current reading
+- **Slash commands** for instant, model-free transport control:
+  `/tts-pause`, `/tts-resume`, `/tts-skip`, `/tts-stop`, `/tts-status`
 - Playback is killed on session shutdown/reload and on process exit — no
-  orphaned audio after pi quits
+  orphaned audio after pi quits (paused readings included)
 - Voice selection by bare name (`onyx`, `isabella` — prefix optional, resolved
   automatically), exact id (`am_onyx`), alias (`personal`, `calm`, `anchor`), or blend
 - Calibrated `pace` presets (`fast`, `slow`, `very_slow`, `long_pauses`) —
@@ -69,6 +73,20 @@ pi update --extensions
 - "stop reading" / "quiet" (triggers `stop`)
 - "and read this one after that" (triggers `queue`)
 - "skip this one, continue with the rest" (triggers `skip`)
+- "pause the reading" / "continue" (triggers `pause` / `resume`)
+
+## Slash commands
+
+User-typed transport controls that bypass the LLM entirely (no round-trip,
+no token cost, no misinterpretation):
+
+| Command        | Action                                              |
+|----------------|-----------------------------------------------------|
+| `/tts-pause`   | Pause the current reading                           |
+| `/tts-resume`  | Resume a paused reading                             |
+| `/tts-skip`    | Skip current utterance; queued ones continue        |
+| `/tts-stop`    | Stop everything and clear the queue                 |
+| `/tts-status`  | Report what's playing / paused and queue length     |
 
 ## Parameters
 
@@ -85,6 +103,8 @@ pi update --extensions
 | `stop`        | Stop background speech + clear queue (alone, or with new text)     |
 | `skip`        | Skip current utterance, keep queue (alone, or with new text)       |
 | `queue`       | Play after current speech instead of interrupting                  |
+| `pause`       | Pause current playback (use alone)                                 |
+| `resume`      | Resume paused playback (use alone)                                 |
 
 ## Development
 

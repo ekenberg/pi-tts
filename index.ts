@@ -35,7 +35,7 @@ type ToolResult = {
   details: object;
 };
 
-type Job = { args: string[]; stdinText: string; spoken: string };
+type Job = { args: string[]; stdinText: string; spoken: string; label: string };
 
 /**
  * Calibrated pace presets (listening-tested by the owner). Single source of
@@ -103,8 +103,23 @@ async function resolveVoice(v: string): Promise<{ id?: string; error?: string }>
 
 export default function (pi: ExtensionAPI) {
   // --- Background playback state: one active playback + FIFO queue ---
-  let current: { child: ChildProcess; pid: number } | null = null;
+  let current: { child: ChildProcess; pid: number; paused: boolean; label: string } | null = null;
   const queue: Job[] = [];
+
+  // Signal a whole process group; ignore errors (group already gone).
+  const signalGroup = (pid: number, sig: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      /* already gone */
+    }
+  };
+  // Kill a group cleanly. SIGCONT first so a PAUSED (SIGSTOP'd) group actually
+  // receives the SIGTERM — otherwise TERM is queued until resume => stopped orphan.
+  const killGroup = (pid: number) => {
+    signalGroup(pid, "SIGCONT");
+    signalGroup(pid, "SIGTERM");
+  };
 
   // Safety net for exits where session_shutdown never fires. Registered once
   // per process (globalThis guard prevents /reload from stacking handlers);
@@ -114,8 +129,10 @@ export default function (pi: ExtensionAPI) {
   if (!g.__piTtsExitHook) {
     g.__piTtsExitHook = true;
     process.on("exit", () => {
+      // CONT then TERM: don't strand a paused group on quit/reload.
       if (g.__piTtsPgid) {
         try {
+          process.kill(-g.__piTtsPgid, "SIGCONT");
           process.kill(-g.__piTtsPgid, "SIGTERM");
         } catch {
           /* already gone */
@@ -129,16 +146,41 @@ export default function (pi: ExtensionAPI) {
     const dropped = queue.length;
     queue.length = 0;
     if (!current) return { stopped: false, dropped };
-    if (current.pid) {
-      try {
-        process.kill(-current.pid, "SIGTERM");
-      } catch {
-        /* already gone */
-      }
-    }
+    if (current.pid) killGroup(current.pid);
     current = null;
     setPgid(undefined);
     return { stopped: true, dropped };
+  }
+
+  /** Pause current playback (freezes the whole pipeline; the queue waits). */
+  function pausePlayback(): string {
+    if (!current) return "Nothing is playing.";
+    if (current.paused) return "Already paused.";
+    signalGroup(current.pid, "SIGSTOP");
+    current.paused = true;
+    return `Paused (${current.label}).`;
+  }
+
+  /** Resume paused playback. */
+  function resumePlayback(): string {
+    if (!current) return "Nothing is playing.";
+    if (!current.paused) return "Not paused.";
+    signalGroup(current.pid, "SIGCONT");
+    current.paused = false;
+    return `Resumed (${current.label}).`;
+  }
+
+  /**
+   * Skip only the current utterance, keeping the queue. Killing the group fires
+   * the child's close handler, which auto-starts the next queued item.
+   */
+  function skipPlayback(): string {
+    if (!current) return "Nothing is playing to skip.";
+    killGroup(current.pid);
+    const rest = queue.length;
+    return `Skipped current playback.${
+      rest ? ` ${rest} queued item(s) will continue.` : " Queue is empty."
+    }`;
   }
 
   pi.on("session_shutdown", async () => {
@@ -162,7 +204,7 @@ export default function (pi: ExtensionAPI) {
     if (job.stdinText) child.stdin?.write(job.stdinText);
     child.stdin?.end();
 
-    current = { child, pid: child.pid ?? 0 };
+    current = { child, pid: child.pid ?? 0, paused: false, label: job.label };
     setPgid(child.pid);
 
     const advance = () => {
@@ -201,6 +243,41 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
+  // --- Slash commands: user-typed transport controls, zero LLM round-trip ---
+  const transport: Array<[string, () => string]> = [
+    ["tts-pause", pausePlayback],
+    ["tts-resume", resumePlayback],
+    ["tts-skip", skipPlayback],
+    [
+      "tts-stop",
+      () => {
+        const { stopped, dropped } = stopAll();
+        return stopped
+          ? `Stopped playback${dropped ? ` (dropped ${dropped} queued)` : ""}.`
+          : "Nothing was playing.";
+      },
+    ],
+  ];
+  for (const [name, fn] of transport) {
+    pi.registerCommand(name, {
+      description: `TTS: ${name.slice(4)} playback`,
+      handler: async (_args, ctx) => {
+        ctx.ui.notify(fn(), "info");
+      },
+    });
+  }
+  pi.registerCommand("tts-status", {
+    description: "TTS: show playback status",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(
+        current
+          ? `${current.paused ? "Paused" : "Speaking"}: ${current.label}; ${queue.length} queued.`
+          : "TTS idle.",
+        "info",
+      );
+    },
+  });
+
   pi.registerTool({
     name: "tts",
     label: "Text to Speech",
@@ -209,7 +286,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
       "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
-      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
+      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, pause: true / resume: true to pause and continue, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
       "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
     ],
     parameters: Type.Object({
@@ -291,6 +368,15 @@ export default function (pi: ExtensionAPI) {
             "If something is already speaking, play this after it finishes instead of interrupting it.",
         }),
       ),
+      pause: Type.Optional(
+        Type.Boolean({
+          description:
+            "Pause current playback (resume with resume: true or /tts-resume). Use alone.",
+        }),
+      ),
+      resume: Type.Optional(
+        Type.Boolean({ description: "Resume paused playback. Use alone." }),
+      ),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<ToolResult> {
       // Discovery mode: dump the live voice catalog instead of speaking.
@@ -330,11 +416,7 @@ export default function (pi: ExtensionAPI) {
       // queue survives and plays after it.
       if (wantSkip) {
         if (current) {
-          try {
-            process.kill(-current.pid, "SIGTERM");
-          } catch {
-            /* already gone */
-          }
+          killGroup(current.pid);
           note = "Skipped current playback. ";
         } else {
           note = "Nothing was playing to skip. ";
@@ -354,7 +436,16 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
+      // Control-only actions (no text): pause/resume act here. When text IS
+      // present they are ignored and the speak path runs (barge-in cleans any
+      // paused job), because "pause/resume then say X" is incoherent.
       if (!hasSource) {
+        if (params.pause) {
+          return { content: [{ type: "text", text: pausePlayback() }], details: {} };
+        }
+        if (params.resume) {
+          return { content: [{ type: "text", text: resumePlayback() }], details: {} };
+        }
         return {
           content: [{ type: "text", text: "Error: provide either 'text' or 'input_file'." }],
           isError: true,
@@ -413,7 +504,7 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      const job: Job = { args, stdinText, spoken };
+      const job: Job = { args, stdinText, spoken, label: `${spoken}, ${voiceLabel}` };
 
       // queue: true → play after whatever is speaking (and any queued items).
       if (params.queue && current) {
