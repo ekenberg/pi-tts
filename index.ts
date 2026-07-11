@@ -138,11 +138,14 @@ export default function (pi: ExtensionAPI) {
       return;
     }
     const q = queue.length ? ` +${queue.length}` : "";
+    // Leading dim "| " separator: pi only space-joins extension statuses, so we
+    // add our own divider from the preceding one (TTS sorts last on the line).
+    const sep = statusUi.theme.fg("dim", "| ");
     statusUi.setStatus(
       "tts",
       current.paused
-        ? statusUi.theme.fg("warning", `TTS: ⏸${q}`)
-        : statusUi.theme.fg("accent", `TTS: ▶${q}`),
+        ? sep + statusUi.theme.fg("warning", `TTS: ⏸${q}`)
+        : sep + statusUi.theme.fg("accent", `TTS: ▶${q}`),
     );
   }
 
