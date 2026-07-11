@@ -34,12 +34,9 @@ export default function (pi: ExtensionAPI) {
       "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS). Use to read messages, summaries, or notifications out loud. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing.",
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
-      "Use tts to read text aloud when the user asks to hear something, wants audio output, or wants a summary spoken.",
-      "Use tts with output_file to generate a WAV file the user can play or download later instead of speaking immediately.",
-      "Prefer concise text for tts; long documents are spoken in full and take longer to synthesize.",
-      "Omit voice to use the user's default personal voice; pass voice (e.g. 'am_adam', 'af_sarah', or a blend like 'af_sarah:60,am_adam:40') to override.",
-      "To choose a voice you don't know by exact name, call tts with list_voices: true to fetch the live catalog, then call again with the chosen voice.",
-      "Construct a language/gender hint from the scheme (a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, z=Chinese; f=female, m=male), but use list_voices to get the specific name. Known aliases: personal, calm, anchor.",
+      "Use tts to read text aloud when the user asks to hear something or wants audio output; pass output_file to save a WAV instead of speaking.",
+      "Prefer concise text; long documents are spoken in full and take longer.",
+      "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
     ],
     parameters: Type.Object({
       text: Type.Optional(
@@ -102,7 +99,7 @@ export default function (pi: ExtensionAPI) {
       const args: string[] = [];
       if (params.voice) args.push("-v", params.voice);
       if (params.speed !== undefined) args.push("-s", String(params.speed));
-      if (params.pause_scale !== undefined) args.push("-P", String(params.pause_scale));
+      if (params.pause_scale !== undefined) args.push("-p", String(params.pause_scale));
       if (params.output_file) args.push("-o", params.output_file);
 
       const useFile = !!params.input_file;
@@ -145,21 +142,35 @@ function runTts(
 
     child.stdout?.on("data", (d) => (out += d));
     child.stderr?.on("data", (d) => (err += d));
+    // Swallow stdin stream errors (e.g. EPIPE when the binary is missing or
+    // exits early) — otherwise an unhandled 'error' event crashes the host.
+    child.stdin?.on("error", () => {});
     // Always close stdin so `tts` sees EOF and exits even when text is empty.
     if (stdinText) child.stdin?.write(stdinText);
     child.stdin?.end();
 
-    child.on("error", (e) =>
+    child.on("error", (e) => {
+      // Abort via signal surfaces here as AbortError (before 'close' fires);
+      // report it as a clean cancellation, not a failure.
+      if (e.name === "AbortError") {
+        resolve({ content: [{ type: "text", text: "tts: aborted by user." }], details: {} });
+        return;
+      }
       resolve({
         content: [{ type: "text", text: `${errorPrefix}: ${e.message}` }],
         isError: true,
         details: {},
-      }),
-    );
+      });
+    });
     child.on("close", (code) => {
-      // code === null means the process was aborted (e.g. user cancelled).
+      // code === null: killed by a signal without a JS-side abort (external
+      // kill, OOM, ...). The AbortError path above handles user cancels.
       if (code === null) {
-        resolve({ content: [{ type: "text", text: `${errorPrefix}: aborted.` }], details: {} });
+        resolve({
+          content: [{ type: "text", text: `${errorPrefix}: terminated by signal.` }],
+          isError: true,
+          details: {},
+        });
         return;
       }
       if (code !== 0) {
