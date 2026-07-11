@@ -145,7 +145,7 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
       "Use tts to read text aloud when the user asks to hear something or wants audio output; pass output_file to save a WAV instead of speaking.",
-      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop it, queue: true to play after the current one.",
+      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, queue: true to play after the current one.",
       "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
     ],
     parameters: Type.Object({
@@ -192,7 +192,13 @@ export default function (pi: ExtensionAPI) {
       stop: Type.Optional(
         Type.Boolean({
           description:
-            "Stop current background speech and clear the queue. Use alone to just stop, or together with text to stop-then-speak.",
+            "Stop speech entirely: kills current playback AND clears the queue. Use alone to just stop, or with text to stop-then-speak. Overrides skip.",
+        }),
+      ),
+      skip: Type.Optional(
+        Type.Boolean({
+          description:
+            "Skip the current utterance; queued ones continue. Use alone, or with text to speak it now without dropping the queue.",
         }),
       ),
       queue: Type.Optional(
@@ -208,19 +214,54 @@ export default function (pi: ExtensionAPI) {
         return runTts(["--voices"], "", signal, "Error listing voices");
       }
 
-      // Stop mode: kill playback + queue; may be combined with new text.
-      let stopNote = "";
-      if (params.stop) {
+      // Forgiving action precedence for small models: every flag combo does
+      // something sensible, nothing is silently ignored. stop beats skip.
+      const wantStop = !!params.stop;
+      const wantSkip = !!params.skip && !wantStop;
+      const hasSource = !!params.text || !!params.input_file;
+      let note = "";
+
+      if (wantStop) {
         const { stopped, dropped } = stopAll();
-        stopNote = stopped
+        note = stopped
           ? `Stopped playback${dropped ? ` (dropped ${dropped} queued)` : ""}. `
           : "Nothing was playing. ";
-        if (!params.text && !params.input_file) {
-          return { content: [{ type: "text", text: stopNote.trim() }], details: {} };
+        if (!hasSource) {
+          return { content: [{ type: "text", text: note.trim() }], details: {} };
         }
       }
 
-      if (!params.text && !params.input_file) {
+      // Skip: kill only the current utterance, keep the queue. Without text
+      // the queue advances by itself (the dying child's close handler shifts
+      // it); with text the new utterance replaces `current` first, so the
+      // queue survives and plays after it.
+      if (wantSkip) {
+        if (current) {
+          try {
+            process.kill(-current.pid, "SIGTERM");
+          } catch {
+            /* already gone */
+          }
+          note = "Skipped current playback. ";
+        } else {
+          note = "Nothing was playing to skip. ";
+        }
+        if (!hasSource) {
+          const rest = queue.length;
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  note + (rest ? `${rest} queued item(s) will continue.` : "Queue is empty."),
+              },
+            ],
+            details: {},
+          };
+        }
+      }
+
+      if (!hasSource) {
         return {
           content: [{ type: "text", text: "Error: provide either 'text' or 'input_file'." }],
           isError: true,
@@ -255,7 +296,7 @@ export default function (pi: ExtensionAPI) {
           content: [
             {
               type: "text",
-              text: `${stopNote}Saved audio to ${params.output_file} (source: ${spoken}) — ${settings}.`,
+              text: `${note}Saved audio to ${params.output_file} (source: ${spoken}) — ${settings}.`,
             },
           ],
           details: {},
@@ -264,19 +305,27 @@ export default function (pi: ExtensionAPI) {
 
       const job: Job = { args, stdinText, spoken };
 
-      // queue: true → play after whatever is currently speaking.
+      // queue: true → play after whatever is speaking (and any queued items).
       if (params.queue && current) {
         queue.push(job);
         return {
           content: [
-            { type: "text", text: `Queued ${spoken} (position ${queue.length}) — ${settings}.` },
+            {
+              type: "text",
+              text: `${note}Queued ${spoken} (position ${queue.length}) — ${settings}.`,
+            },
           ],
           details: {},
         };
       }
 
-      // Default: barge-in. New speech replaces current playback + queue.
-      const interrupted = stopAll().stopped;
+      // Default: barge-in — new speech replaces current playback + queue.
+      // After skip we keep the queue: startJob replaces `current` before the
+      // dying child's close handler runs, so the queue is not advanced twice.
+      if (!wantSkip) {
+        const interrupted = stopAll().stopped;
+        if (!note && interrupted) note = "Interrupted previous playback. ";
+      }
       const { error } = await startWithGrace(job);
       if (error) {
         return {
@@ -285,12 +334,12 @@ export default function (pi: ExtensionAPI) {
           details: {},
         };
       }
-      const note = stopNote || (interrupted ? "Interrupted previous playback. " : "");
+      const after = wantSkip && queue.length ? ` ${queue.length} queued item(s) follow.` : "";
       return {
         content: [
           {
             type: "text",
-            text: `${note}Speaking ${spoken} in background — ${settings}. Interrupt with stop: true.`,
+            text: `${note}Speaking ${spoken} in background — ${settings}. Interrupt with stop: true.${after}`,
           },
         ],
         details: {},

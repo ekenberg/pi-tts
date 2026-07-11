@@ -45,7 +45,8 @@ pi update --extensions
   immediately (after a short grace window that catches instant failures like
   a bad voice name) while audio plays on
 - **Barge-in**: a new `tts` call interrupts current speech; `queue: true`
-  plays it after the current one instead; `stop: true` stops everything
+  plays it after the current one instead; `stop: true` stops everything;
+  `skip: true` jumps to the next queued item (keeps the queue)
 - Playback is killed on session shutdown/reload and on process exit — no
   orphaned audio after pi quits
 - Voice selection by exact name, alias (`personal`, `calm`, `anchor`), or blend
@@ -62,6 +63,7 @@ pi update --extensions
 - "what british female voices are available?" (triggers `list_voices`)
 - "stop reading" / "quiet" (triggers `stop`)
 - "and read this one after that" (triggers `queue`)
+- "skip this one, continue with the rest" (triggers `skip`)
 
 ## Parameters
 
@@ -75,6 +77,7 @@ pi update --extensions
 | `output_file` | Save WAV instead of playing (`tts -o`)                             |
 | `list_voices` | If true, list available voices instead of speaking                 |
 | `stop`        | Stop background speech + clear queue (alone, or with new text)     |
+| `skip`        | Skip current utterance, keep queue (alone, or with new text)       |
 | `queue`       | Play after current speech instead of interrupting                  |
 
 ## Development
