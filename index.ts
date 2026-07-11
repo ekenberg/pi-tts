@@ -37,6 +37,18 @@ type ToolResult = {
 
 type Job = { args: string[]; stdinText: string; spoken: string };
 
+/**
+ * Calibrated pace presets (listening-tested by the owner). Single source of
+ * truth for what natural-language pace words mean; models pick a preset
+ * instead of reasoning about numbers. Explicit speed/pause_scale override.
+ */
+const PACE: Record<string, { speed?: number; pause?: number }> = {
+  fast: { speed: 1.3 },
+  slow: { speed: 0.8, pause: 1.5 },
+  very_slow: { speed: 0.7, pause: 2.0 },
+  long_pauses: { speed: 0.8, pause: 3.0 },
+};
+
 export default function (pi: ExtensionAPI) {
   // --- Background playback state: one active playback + FIFO queue ---
   let current: { child: ChildProcess; pid: number } | null = null;
@@ -173,15 +185,34 @@ export default function (pi: ExtensionAPI) {
             "If true, list all available voices (and aliases) instead of speaking. Use this to discover the exact voice name when you only know a language/gender or a descriptive style.",
         }),
       ),
+      pace: Type.Optional(
+        Type.Union(
+          [
+            Type.Literal("fast"),
+            Type.Literal("slow"),
+            Type.Literal("very_slow"),
+            Type.Literal("long_pauses"),
+          ],
+          {
+            description:
+              "Preset reading pace — preferred over raw numbers. Map natural language: 'fast/quickly' → fast; 'slowly/clearly' → slow; 'very slowly/meditative' → very_slow; 'with (very) long pauses' → long_pauses. Omit for normal pace.",
+          },
+        ),
+      ),
       speed: Type.Optional(
         Type.Number({
-          description: "Speech speed multiplier. 1.0 = normal, >1 faster. Default 1.0.",
+          minimum: 0.7,
+          maximum: 1.5,
+          description:
+            "Fine-grained speed multiplier (0.7–1.5, 1.0 = normal). Only for explicit numeric requests; otherwise use pace. Overrides the pace preset's speed.",
         }),
       ),
       pause_scale: Type.Optional(
         Type.Number({
+          minimum: 1.0,
+          maximum: 4.0,
           description:
-            "Natural pause scaling between sentences. Default 1.0 (full natural pauses); >1.0 = slower cadence, <1.0 = clipped/snappy.",
+            "Fine-grained pause length between sentences (1.0–4.0, 1.0 = normal). Only for explicit numeric requests; otherwise use pace. Overrides the pace preset's pauses.",
         }),
       ),
       output_file: Type.Optional(
@@ -272,12 +303,17 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
+      // Resolve pace preset; explicit numeric params override it.
+      const preset = params.pace ? PACE[params.pace] : undefined;
+      const speed = params.speed ?? preset?.speed;
+      const pause = params.pause_scale ?? preset?.pause;
+
       // Map friendly parameters -> tts CLI flags. This is the ONLY place the
       // flag syntax exists; the model never sees it.
       const args: string[] = [];
       if (params.voice) args.push("-v", params.voice);
-      if (params.speed !== undefined) args.push("-s", String(params.speed));
-      if (params.pause_scale !== undefined) args.push("-p", String(params.pause_scale));
+      if (speed !== undefined) args.push("-s", String(speed));
+      if (pause !== undefined) args.push("-p", String(pause));
       if (params.output_file) args.push("-o", params.output_file);
 
       const useFile = !!params.input_file;
@@ -287,9 +323,9 @@ export default function (pi: ExtensionAPI) {
       const stdinText = useFile ? "" : params.text ?? "";
 
       const spoken = useFile ? `file '${params.input_file}'` : `${params.text!.length} chars`;
-      const settings = `voice: ${params.voice ?? "personal"}, speed: ${
-        params.speed ?? 1.0
-      }, pause_scale: ${params.pause_scale ?? 1.0}`;
+      const settings = `voice: ${params.voice ?? "personal"}${
+        params.pace ? `, pace: ${params.pace}` : ""
+      }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}`;
 
       // File synthesis: no playback involved, stay synchronous.
       if (params.output_file) {

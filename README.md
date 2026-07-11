@@ -50,7 +50,10 @@ pi update --extensions
 - Playback is killed on session shutdown/reload and on process exit — no
   orphaned audio after pi quits
 - Voice selection by exact name, alias (`personal`, `calm`, `anchor`), or blend
-- Speed and pause-scale control (defaults: speed 1.0, pause_scale 1.0)
+- Calibrated `pace` presets (`fast`, `slow`, `very_slow`, `long_pauses`) —
+  listening-tested mappings from natural language to speed/pause combos
+- Fine-grained speed (0.7–1.5) and pause-scale (1.0–4.0) control for explicit
+  numeric requests; these override the preset
 - Save to a WAV file instead of playing (synchronous — no playback involved)
 - `list_voices: true` fetches the live voice catalog on demand
 
@@ -58,7 +61,8 @@ pi update --extensions
 
 - "read that summary aloud using sarah"
 - "say hello there using af_sarah"
-- "read this file out loud using extra long pauses between words"
+- "read this file out loud slowly" / "quickly" / "meditatively" (→ `pace`)
+- "read this out loud with very long pauses" (→ `pace: long_pauses`)
 - "save this to memo.wav"
 - "what british female voices are available?" (triggers `list_voices`)
 - "stop reading" / "quiet" (triggers `stop`)
@@ -72,8 +76,9 @@ pi update --extensions
 | `text`        | Text to speak (or use `input_file`)                                |
 | `input_file`  | Read text from a file (`tts -f`)                                   |
 | `voice`       | Voice name/alias/blend; default `personal`                         |
-| `speed`       | Speed multiplier, default 1.0                                      |
-| `pause_scale` | Pause scaling, default 1.0                                          |
+| `pace`        | Preset: `fast`, `slow`, `very_slow`, `long_pauses`                 |
+| `speed`       | Speed multiplier 0.7–1.5, default 1.0 (overrides preset)           |
+| `pause_scale` | Pause scaling 1.0–4.0, default 1.0 (overrides preset)              |
 | `output_file` | Save WAV instead of playing (`tts -o`)                             |
 | `list_voices` | If true, list available voices instead of speaking                 |
 | `stop`        | Stop background speech + clear queue (alone, or with new text)     |
