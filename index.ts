@@ -171,16 +171,22 @@ export default function (pi: ExtensionAPI) {
   }
 
   /**
-   * Skip only the current utterance, keeping the queue. Killing the group fires
-   * the child's close handler, which auto-starts the next queued item.
+   * Skip only the current utterance, keeping the queue. We advance the queue
+   * SYNCHRONOUSLY here (rather than leaning on the async close handler) so the
+   * returned message and any immediately-following /tts-status report the same,
+   * already-updated counts. The dead child's close will no-op because `current`
+   * no longer references it.
    */
   function skipPlayback(): string {
     if (!current) return "Nothing is playing to skip.";
     killGroup(current.pid);
-    const rest = queue.length;
-    return `Skipped current playback.${
-      rest ? ` ${rest} queued item(s) will continue.` : " Queue is empty."
-    }`;
+    current = null;
+    setPgid(undefined);
+    const next = queue.shift();
+    if (next) startJob(next);
+    return next
+      ? `Skipped. Now playing the next item; ${queue.length} still queued.`
+      : "Skipped. Queue is now empty.";
   }
 
   pi.on("session_shutdown", async () => {
@@ -415,24 +421,17 @@ export default function (pi: ExtensionAPI) {
       // it); with text the new utterance replaces `current` first, so the
       // queue survives and plays after it.
       if (wantSkip) {
+        // Pure skip (no new text): advance synchronously with accurate counts.
+        if (!hasSource) {
+          return { content: [{ type: "text", text: skipPlayback() }], details: {} };
+        }
+        // Skip + new text: kill current, KEEP the queue; the new utterance below
+        // becomes `current`, pre-empting the dead child's auto-advance.
         if (current) {
           killGroup(current.pid);
           note = "Skipped current playback. ";
         } else {
           note = "Nothing was playing to skip. ";
-        }
-        if (!hasSource) {
-          const rest = queue.length;
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  note + (rest ? `${rest} queued item(s) will continue.` : "Queue is empty."),
-              },
-            ],
-            details: {},
-          };
         }
       }
 
