@@ -141,11 +141,11 @@ export default function (pi: ExtensionAPI) {
     name: "tts",
     label: "Text to Speech",
     description:
-      "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS). Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing.",
+      "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS) — only when the user explicitly asks for audio. Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing.",
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
-      "Use tts to read text aloud when the user asks to hear something or wants audio output; pass output_file to save a WAV instead of speaking.",
-      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, queue: true to play after the current one.",
+      "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
+      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
       "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
     ],
     parameters: Type.Object({
@@ -192,13 +192,13 @@ export default function (pi: ExtensionAPI) {
       stop: Type.Optional(
         Type.Boolean({
           description:
-            "Stop speech entirely: kills current playback AND clears the queue. Use alone to just stop, or with text to stop-then-speak. Overrides skip.",
+            "Stop speech entirely: kills current playback AND clears the queue. Use alone to just stop, or with text to stop-then-speak.",
         }),
       ),
       skip: Type.Optional(
         Type.Boolean({
           description:
-            "Skip the current utterance; queued ones continue. Use alone, or with text to speak it now without dropping the queue.",
+            "Skip the current utterance; queued ones continue. Use alone, or with text to speak it now without dropping the queue. Overrides stop.",
         }),
       ),
       queue: Type.Optional(
@@ -215,9 +215,12 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Forgiving action precedence for small models: every flag combo does
-      // something sensible, nothing is silently ignored. stop beats skip.
-      const wantStop = !!params.stop;
-      const wantSkip = !!params.skip && !wantStop;
+      // something sensible, nothing is silently ignored. skip beats stop:
+      // a model that sends both almost always came from skip-flavored
+      // phrasing ("stop this one, skip to the next"); a full stop is
+      // expressed as stop alone.
+      const wantSkip = !!params.skip;
+      const wantStop = !!params.stop && !wantSkip;
       const hasSource = !!params.text || !!params.input_file;
       let note = "";
 
