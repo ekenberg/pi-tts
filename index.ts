@@ -37,6 +37,12 @@ type ToolResult = {
 
 type Job = { args: string[]; stdinText: string; spoken: string; label: string };
 
+// Minimal shape of the bits of the UI context we need for the footer status.
+type StatusUI = {
+  setStatus: (key: string, text: string | undefined) => void;
+  theme: { fg: (color: string, text: string) => string };
+};
+
 /**
  * Calibrated pace presets (listening-tested by the owner). Single source of
  * truth for what natural-language pace words mean; models pick a preset
@@ -121,6 +127,25 @@ export default function (pi: ExtensionAPI) {
     signalGroup(pid, "SIGTERM");
   };
 
+  // Footer status. Cached UI ref (captured from session_start / tool execute)
+  // so we can update the footer even from a child 'close' event or a slash
+  // command — neither of which carries a setStatus-capable context.
+  let statusUi: StatusUI | undefined;
+  function renderStatus(): void {
+    if (!statusUi) return;
+    if (!current) {
+      statusUi.setStatus("tts", undefined);
+      return;
+    }
+    const q = queue.length ? ` +${queue.length}` : "";
+    statusUi.setStatus(
+      "tts",
+      current.paused
+        ? statusUi.theme.fg("warning", `⏸ tts${q}`)
+        : statusUi.theme.fg("accent", `▶ tts${q}`),
+    );
+  }
+
   // Safety net for exits where session_shutdown never fires. Registered once
   // per process (globalThis guard prevents /reload from stacking handlers);
   // reads the live process-group id from globalThis.
@@ -149,6 +174,7 @@ export default function (pi: ExtensionAPI) {
     if (current.pid) killGroup(current.pid);
     current = null;
     setPgid(undefined);
+    renderStatus();
     return { stopped: true, dropped };
   }
 
@@ -158,6 +184,7 @@ export default function (pi: ExtensionAPI) {
     if (current.paused) return "Already paused.";
     signalGroup(current.pid, "SIGSTOP");
     current.paused = true;
+    renderStatus();
     return `Paused (${current.label}).`;
   }
 
@@ -167,6 +194,7 @@ export default function (pi: ExtensionAPI) {
     if (!current.paused) return "Not paused.";
     signalGroup(current.pid, "SIGCONT");
     current.paused = false;
+    renderStatus();
     return `Resumed (${current.label}).`;
   }
 
@@ -184,10 +212,16 @@ export default function (pi: ExtensionAPI) {
     setPgid(undefined);
     const next = queue.shift();
     if (next) startJob(next);
+    else renderStatus();
     return next
       ? `Skipped. Now playing the next item; ${queue.length} still queued.`
       : "Skipped. Queue is now empty.";
   }
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (ctx?.ui) statusUi = ctx.ui as StatusUI;
+    renderStatus();
+  });
 
   pi.on("session_shutdown", async () => {
     stopAll();
@@ -212,6 +246,7 @@ export default function (pi: ExtensionAPI) {
 
     current = { child, pid: child.pid ?? 0, paused: false, label: job.label };
     setPgid(child.pid);
+    renderStatus();
 
     const advance = () => {
       if (current?.child !== child) return; // superseded by barge-in/stop
@@ -219,6 +254,7 @@ export default function (pi: ExtensionAPI) {
       setPgid(undefined);
       const next = queue.shift();
       if (next) startJob(next);
+      else renderStatus();
     };
     child.on("close", advance);
     child.on("error", advance);
@@ -384,7 +420,10 @@ export default function (pi: ExtensionAPI) {
         Type.Boolean({ description: "Resume paused playback. Use alone." }),
       ),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<ToolResult> {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolResult> {
+      // Capture a setStatus-capable UI ref for the footer (see renderStatus).
+      if (ctx?.ui) statusUi = ctx.ui as StatusUI;
+
       // Discovery mode: dump the live voice catalog instead of speaking.
       if (params.list_voices) {
         const r = await runTts(["--voices"], "", signal, "Error listing voices");
@@ -508,6 +547,7 @@ export default function (pi: ExtensionAPI) {
       // queue: true → play after whatever is speaking (and any queued items).
       if (params.queue && current) {
         queue.push(job);
+        renderStatus();
         return {
           content: [
             {

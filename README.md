@@ -51,6 +51,8 @@ pi update --extensions
   `/tts-resume` slash commands) freeze and continue the current reading
 - **Slash commands** for instant, model-free transport control:
   `/tts-pause`, `/tts-resume`, `/tts-skip`, `/tts-stop`, `/tts-status`
+- **Transient footer indicator**: `▶ tts +N` while speaking, `⏸ tts +N` while
+  paused (N = queued count); clears at idle, so it adds no line at rest
 - Playback is killed on session shutdown/reload and on process exit — no
   orphaned audio after pi quits (paused readings included)
 - Voice selection by bare name (`onyx`, `isabella` — prefix optional, resolved
