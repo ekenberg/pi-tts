@@ -41,9 +41,16 @@ pi update --extensions
 ## Features
 
 - Speak text aloud (or from a file) via the `tts` tool
+- **Background playback**: speaking never blocks the agent; the tool returns
+  immediately (after a short grace window that catches instant failures like
+  a bad voice name) while audio plays on
+- **Barge-in**: a new `tts` call interrupts current speech; `queue: true`
+  plays it after the current one instead; `stop: true` stops everything
+- Playback is killed on session shutdown/reload and on process exit — no
+  orphaned audio after pi quits
 - Voice selection by exact name, alias (`personal`, `calm`, `anchor`), or blend
 - Speed and pause-scale control (defaults: speed 1.0, pause_scale 1.0)
-- Save to a WAV file instead of playing
+- Save to a WAV file instead of playing (synchronous — no playback involved)
 - `list_voices: true` fetches the live voice catalog on demand
 
 ## Usage (natural language)
@@ -53,6 +60,8 @@ pi update --extensions
 - "read this file out loud using extra long pauses between words"
 - "save this to memo.wav"
 - "what british female voices are available?" (triggers `list_voices`)
+- "stop reading" / "quiet" (triggers `stop`)
+- "and read this one after that" (triggers `queue`)
 
 ## Parameters
 
@@ -65,6 +74,8 @@ pi update --extensions
 | `pause_scale` | Pause scaling, default 1.0                                          |
 | `output_file` | Save WAV instead of playing (`tts -o`)                             |
 | `list_voices` | If true, list available voices instead of speaking                 |
+| `stop`        | Stop background speech + clear queue (alone, or with new text)     |
+| `queue`       | Play after current speech instead of interrupting                  |
 
 ## Development
 
