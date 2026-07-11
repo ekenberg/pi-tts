@@ -3,6 +3,18 @@
 Read this before changing the `tts` extension. It explains the repo layout and
 the day-to-day loop.
 
+## Status / roadmap
+
+- **Phase 1 — DONE & validated:** background playback, barge-in, queue, pause/
+  resume/skip/stop/status (tool params + `/tts-*` slash commands), orphan-safe
+  process-group kills, calibrated pace presets, bare voice-name resolution, and
+  the `| TTS: ▶ +N` footer indicator.
+- **Phase 2 — OPTIONAL, likely never:** backward-skip / precise resume (e.g.
+  "resume −5s"). Requires switching from streaming playback to render-to-file
+  (temp WAV + seekable player), which adds start-up latency and complexity.
+  **Do NOT treat this as pending or mandatory work.** Only pursue it if the
+  repo owner explicitly asks for it in a future session.
+
 ## Repo layout — two repos, one remote
 
 - **Source repo (this directory):** `/home/johan/srv/syncthing/projects/pi-tts`
