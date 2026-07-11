@@ -49,7 +49,8 @@ pi update --extensions
   `skip: true` jumps to the next queued item (keeps the queue)
 - Playback is killed on session shutdown/reload and on process exit — no
   orphaned audio after pi quits
-- Voice selection by exact name, alias (`personal`, `calm`, `anchor`), or blend
+- Voice selection by bare name (`onyx`, `isabella` — prefix optional, resolved
+  automatically), exact id (`am_onyx`), alias (`personal`, `calm`, `anchor`), or blend
 - Calibrated `pace` presets (`fast`, `slow`, `very_slow`, `long_pauses`) —
   listening-tested mappings from natural language to speed/pause combos
 - Fine-grained speed (0.7–1.5) and pause-scale (1.0–4.0) control for explicit
@@ -75,7 +76,7 @@ pi update --extensions
 |---------------|--------------------------------------------------------------------|
 | `text`        | Text to speak (or use `input_file`)                                |
 | `input_file`  | Read text from a file (`tts -f`)                                   |
-| `voice`       | Voice name/alias/blend; default `personal`                         |
+| `voice`       | Bare name / id / alias / blend; default `personal`                 |
 | `pace`        | Preset: `fast`, `slow`, `very_slow`, `long_pauses`                 |
 | `speed`       | Speed multiplier 0.7–1.5, default 1.0 (overrides preset)           |
 | `pause_scale` | Pause scaling 1.0–4.0, default 1.0 (overrides preset)              |
