@@ -49,6 +49,58 @@ const PACE: Record<string, { speed?: number; pause?: number }> = {
   long_pauses: { speed: 0.8, pause: 3.0 },
 };
 
+/**
+ * Bare-name voice resolution so humans (and dim models) can say "onyx" or
+ * "isabella" instead of "am_onyx" / "bf_isabella". Built lazily from the live
+ * `tts --voices` output and cached for the process. Full ids, aliases, and
+ * blends bypass this entirely.
+ */
+let catalogPromise: Promise<Map<string, string[]>> | null = null;
+
+function loadVoiceCatalog(): Promise<Map<string, string[]>> {
+  if (catalogPromise) return catalogPromise;
+  catalogPromise = new Promise((resolve) => {
+    const child = spawn("tts", ["--voices"]);
+    let out = "";
+    child.stdout?.on("data", (d) => (out += d));
+    child.stdin?.on("error", () => {});
+    child.stdin?.end();
+    child.on("error", () => resolve(new Map()));
+    child.on("close", () => {
+      // Extract voice ids like `bf_isabella`; map bare name -> [full ids].
+      const byBare = new Map<string, Set<string>>();
+      const re = /\b([a-z]{2})_([a-z]+)\b/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(out)) !== null) {
+        const bare = m[2];
+        (byBare.get(bare) ?? byBare.set(bare, new Set()).get(bare)!).add(`${m[1]}_${bare}`);
+      }
+      const res = new Map<string, string[]>();
+      for (const [bare, ids] of byBare) res.set(bare, [...ids]);
+      resolve(res);
+    });
+  });
+  return catalogPromise;
+}
+
+/** A token is a "bare" name only if it has no id underscore, blend comma/colon. */
+function looksBare(v: string): boolean {
+  return !v.includes("_") && !v.includes(",") && !v.includes(":");
+}
+
+/**
+ * Resolve a possibly-bare voice to a full id. Unknown/alias -> passed through
+ * unchanged (tts resolves aliases itself). Ambiguous across languages
+ * (e.g. 'dora' -> ef_dora/pf_dora) -> error listing the candidates.
+ */
+async function resolveVoice(v: string): Promise<{ id?: string; error?: string }> {
+  if (!looksBare(v)) return { id: v };
+  const hits = (await loadVoiceCatalog()).get(v.trim().toLowerCase());
+  if (!hits || hits.length === 0) return { id: v };
+  if (hits.length === 1) return { id: hits[0] };
+  return { error: `Voice '${v}' is ambiguous: ${hits.join(", ")}. Pass the full name.` };
+}
+
 export default function (pi: ExtensionAPI) {
   // --- Background playback state: one active playback + FIFO queue ---
   let current: { child: ChildProcess; pid: number } | null = null;
@@ -176,6 +228,7 @@ export default function (pi: ExtensionAPI) {
             "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. Defaults to the personal voice. " +
             "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, z=Chinese; " +
             "gender = f=female, m=male (e.g. 'bf_emma' = British female). Stable aliases: 'personal' (default), 'calm', 'anchor'. " +
+            "You may pass just the bare name (e.g. 'onyx', 'isabella', 'sarah') — the prefix is optional and resolved automatically. " +
             "Don't know the exact name? Use list_voices: true to fetch the live catalog.",
         }),
       ),
@@ -242,7 +295,13 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, _onUpdate, _ctx): Promise<ToolResult> {
       // Discovery mode: dump the live voice catalog instead of speaking.
       if (params.list_voices) {
-        return runTts(["--voices"], "", signal, "Error listing voices");
+        const r = await runTts(["--voices"], "", signal, "Error listing voices");
+        if (!r.isError && r.content[0]) {
+          r.content[0].text +=
+            "\n\nTip: select any voice by its bare name (e.g. 'onyx', 'isabella', 'emma') — " +
+            "the lang/gender prefix is optional and resolved automatically.";
+        }
+        return r;
       }
 
       // Forgiving action precedence for small models: every flag combo does
@@ -308,10 +367,20 @@ export default function (pi: ExtensionAPI) {
       const speed = params.speed ?? preset?.speed;
       const pause = params.pause_scale ?? preset?.pause;
 
+      // Resolve bare voice names ('onyx' -> 'am_onyx'). Ambiguous -> error.
+      let voice = params.voice;
+      if (voice) {
+        const r = await resolveVoice(voice);
+        if (r.error) {
+          return { content: [{ type: "text", text: r.error }], isError: true, details: {} };
+        }
+        voice = r.id;
+      }
+
       // Map friendly parameters -> tts CLI flags. This is the ONLY place the
       // flag syntax exists; the model never sees it.
       const args: string[] = [];
-      if (params.voice) args.push("-v", params.voice);
+      if (voice) args.push("-v", voice);
       if (speed !== undefined) args.push("-s", String(speed));
       if (pause !== undefined) args.push("-p", String(pause));
       if (params.output_file) args.push("-o", params.output_file);
@@ -323,7 +392,9 @@ export default function (pi: ExtensionAPI) {
       const stdinText = useFile ? "" : params.text ?? "";
 
       const spoken = useFile ? `file '${params.input_file}'` : `${params.text!.length} chars`;
-      const settings = `voice: ${params.voice ?? "personal"}${
+      const voiceLabel =
+        voice && voice !== params.voice ? `${params.voice}→${voice}` : voice ?? "personal";
+      const settings = `voice: ${voiceLabel}${
         params.pace ? `, pace: ${params.pace}` : ""
       }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}`;
 
