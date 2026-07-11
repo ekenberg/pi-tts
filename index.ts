@@ -141,8 +141,8 @@ export default function (pi: ExtensionAPI) {
     statusUi.setStatus(
       "tts",
       current.paused
-        ? statusUi.theme.fg("warning", `⏸ tts${q}`)
-        : statusUi.theme.fg("accent", `▶ tts${q}`),
+        ? statusUi.theme.fg("warning", `TTS: ⏸${q}`)
+        : statusUi.theme.fg("accent", `TTS: ▶${q}`),
     );
   }
 
