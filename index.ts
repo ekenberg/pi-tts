@@ -345,7 +345,7 @@ export default function (pi: ExtensionAPI) {
       voice: Type.Optional(
         Type.String({
           description:
-            "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. Defaults to the tts binary's configured default voice (no -v flag is sent when omitted). " +
+            "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. REQUIRED for non-English text: set this to a voice of that language (Swedish: sf_*/sm_*, French: ff_*, Spanish: ef_*/em_*, ...) — otherwise the English default is used. For English you may leave it empty to use the default. " +
             "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, s=Swedish, z=Chinese; " +
             "gender = f=female, m=male (e.g. 'bf_emma' = British female). Built-in aliases (resolved by the binary): 'personal', 'calm', 'anchor'. " +
             "You may pass just the bare name (e.g. 'onyx', 'isabella', 'sarah') — the prefix is optional and resolved automatically. " +
