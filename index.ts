@@ -347,9 +347,9 @@ export default function (pi: ExtensionAPI) {
       voice: Type.Optional(
         Type.String({
           description:
-            "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. Defaults to the personal voice. " +
+            "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. Defaults to the tts binary's configured default voice (no -v flag is sent when omitted). " +
             "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, z=Chinese; " +
-            "gender = f=female, m=male (e.g. 'bf_emma' = British female). Stable aliases: 'personal' (default), 'calm', 'anchor'. " +
+            "gender = f=female, m=male (e.g. 'bf_emma' = British female). Built-in aliases (resolved by the binary): 'personal', 'calm', 'anchor'. " +
             "You may pass just the bare name (e.g. 'onyx', 'isabella', 'sarah') — the prefix is optional and resolved automatically. " +
             "Don't know the exact name? Use list_voices: true to fetch the live catalog.",
         }),
@@ -525,7 +525,7 @@ export default function (pi: ExtensionAPI) {
 
       const spoken = useFile ? `file '${params.input_file}'` : `${params.text!.length} chars`;
       const voiceLabel =
-        voice && voice !== params.voice ? `${params.voice}→${voice}` : voice ?? "personal";
+        voice && voice !== params.voice ? `${params.voice}→${voice}` : voice ?? "binary default";
       const settings = `voice: ${voiceLabel}${
         params.pace ? `, pace: ${params.pace}` : ""
       }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}`;

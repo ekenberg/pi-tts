@@ -96,7 +96,7 @@ no token cost, no misinterpretation):
 |---------------|--------------------------------------------------------------------|
 | `text`        | Text to speak (or use `input_file`)                                |
 | `input_file`  | Read text from a file (`tts -f`)                                   |
-| `voice`       | Bare name / id / alias / blend; default `personal`                 |
+| `voice`       | Bare name / id / alias / blend; defaults to the binary's configured default (no flag sent) |
 | `pace`        | Preset: `fast`, `slow`, `very_slow`, `long_pauses`                 |
 | `speed`       | Speed multiplier 0.7–1.5, default 1.0 (overrides preset)           |
 | `pause_scale` | Pause scaling 1.0–4.0, default 1.0 (overrides preset)              |
