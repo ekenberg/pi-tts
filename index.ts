@@ -333,6 +333,8 @@ export default function (pi: ExtensionAPI) {
       "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
       "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, pause: true / resume: true to pause and continue, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
       "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
+      "Match the voice to the language being spoken. If the user asks for a specific language, pick a voice of that language from the naming scheme (Swedish: sm_*/sf_*, French: ff_*, Spanish: ef_*/em_*, ...) instead of the English default. Do not read non-English text with the English default voice.",
+      "Before speaking, lightly rewrite the text into natural speech, unless the user asked for it verbatim. Expand abbreviations and bare numbers the TTS would mispronounce (e.g. 'MOE' -> 'mixture of experts', '1M' -> 'one million', '95B' -> '95 billion') and fix broken punctuation. Do NOT change the meaning, add facts, or summarize. If the user says 'verbatim', 'exactly as written', or 'no alterations', send the text unchanged.",
     ],
     parameters: Type.Object({
       text: Type.Optional(
@@ -348,7 +350,7 @@ export default function (pi: ExtensionAPI) {
         Type.String({
           description:
             "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. Defaults to the tts binary's configured default voice (no -v flag is sent when omitted). " +
-            "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, z=Chinese; " +
+            "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, s=Swedish, z=Chinese; " +
             "gender = f=female, m=male (e.g. 'bf_emma' = British female). Built-in aliases (resolved by the binary): 'personal', 'calm', 'anchor'. " +
             "You may pass just the bare name (e.g. 'onyx', 'isabella', 'sarah') — the prefix is optional and resolved automatically. " +
             "Don't know the exact name? Use list_voices: true to fetch the live catalog.",
