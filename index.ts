@@ -327,14 +327,11 @@ export default function (pi: ExtensionAPI) {
     name: "tts",
     label: "Text to Speech",
     description:
-      "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS) — only when the user explicitly asks for audio. Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing.",
+      "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS) — only when the user explicitly asks for audio. Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing. VOICE/LANGUAGE: if the user asks for a non-English language (e.g. Swedish), you MUST set `voice` to a voice of that language (Swedish: `sf_*`/`sm_*`, French: `ff_*`) — never the English default. For English you may omit `voice` to use the default. If they name a specific voice, use it. TEXT: before speaking, rewrite the text into natural speech — expand acronyms/numbers the TTS would mispronounce (e.g. `MOE` -> 'mixture of experts', `1M` -> 'one million') and strip markdown like `* _ #` — unless the user says 'verbatim'.",
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
       "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
       "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, pause: true / resume: true to pause and continue, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
-      "Omit voice for the user's default. If you don't know a voice's exact name, call with list_voices: true first, then call again with the chosen voice.",
-      "Use a voice matching the requested or implied language. For any non-English language, pick a voice of that language from the naming scheme (e.g. Swedish sf_*/sm_*, French ff_*) — never the English default. If the user names a specific voice, use it as given.",
-      "Before speaking, lightly rewrite the text into natural speech, unless the user asked for it verbatim. Expand abbreviations and bare numbers the TTS would mispronounce (e.g. 'MOE' -> 'mixture of experts', '1M' -> 'one million', '95B' -> '95 billion') and fix broken punctuation. Do NOT change the meaning, add facts, or summarize. If the user says 'verbatim', 'exactly as written', or 'no alterations', send the text unchanged.",
     ],
     parameters: Type.Object({
       text: Type.Optional(
