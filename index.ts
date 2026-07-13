@@ -330,7 +330,7 @@ export default function (pi: ExtensionAPI) {
       "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS) — only when the user explicitly asks for audio. Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing. VOICE/LANGUAGE: if the user asks for a non-English language (e.g. Swedish), you MUST set `voice` to a voice of that language (Swedish: `sf_*`/`sm_*`, French: `ff_*`) — never the English default. For English you may omit `voice` to use the default. If they name a specific voice, use it. TEXT: before speaking, rewrite the text into natural speech — expand acronyms/numbers the TTS would mispronounce (e.g. `MOE` -> 'mixture of experts', `1M` -> 'one million') and strip markdown like `* _ #` — unless the user says 'verbatim'.",
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
-      "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
+      "Only call the tts tool when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
     ],
     parameters: Type.Object({
       text: Type.Optional(
