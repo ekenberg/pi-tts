@@ -46,15 +46,26 @@ Clean re-clone if needed: `pi update --extensions`.
 
 ## The edit loop
 
-1. Edit the clone (what pi loads):
-   `~/.pi/agent/git/github.com/ekenberg/pi-tts/index.ts`
-2. `/reload` in pi, then test (e.g. "say hello using af_sarah").
-   No reinstall needed — `/reload` re-reads the clone.
-3. Repeat until happy.
-4. Commit & push from the clone:
-   `cd ~/.pi/agent/git/github.com/ekenberg/pi-tts && git commit -am "..." && git push`
-5. Mirror into this source repo: `git pull` here (this dir also tracks origin).
-   Or commit/push from here instead — both track `origin`; pick one place.
+Two repos track the same remote (see Repo layout). Pick ONE place to edit.
+
+**Recommended — edit the source repo (this folder), then push + re-clone:**
+1. Edit `index.ts` here.
+2. `git commit -am "..." && git push origin live`
+3. `pi update --extensions` — re-clones `live` into pi's managed copy.
+4. Test in a fresh pi session.
+5. Publish stable: `git push origin live:main`
+
+**Alternative — edit pi's managed clone directly:**
+1. Edit `~/.pi/agent/git/github.com/ekenberg/pi-tts/index.ts`
+2. `/reload` in pi, then test (e.g. "say hello using af_sarah"). `/reload`
+   re-reads the clone, so no reinstall is needed *for this path*.
+3. `cd` into the clone, `git commit -am "..." && git push`, then `git pull`
+   here to mirror back into this source repo.
+
+**Gotcha that bit us:** `/reload` only re-reads the *installed clone*. If you
+edited this source folder, `/reload` shows nothing new until you push AND
+`pi update --extensions` re-clones. Always verify against the clone's
+`index.ts`, not this file.
 
 ## Publishing changes to `main`
 
