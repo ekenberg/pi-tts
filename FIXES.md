@@ -5,7 +5,7 @@ project (marked `external`).
 
 ## Open items
 
-- [x] **Swedish voice was undocumented, not missing** (internal fix done; binary `list_voices` fix external)
+- [x] **Swedish voice was undocumented, not missing** (fully resolved)
   - Correction: Swedish voices DO exist — `sf_*` = Swedish female, `sm_*` = Swedish
     male (Chatterbox-backed, e.g. `sf_astrid`, `sm_allan`). Earlier testing wrongly
     claimed "no Swedish voice" / "Allan is not Swedish"; that was a documentation
@@ -14,10 +14,12 @@ project (marked `external`).
     - `s=Swedish` convention was absent from pi-tts `voice` param description.
       **Fixed internally** — added `s=Swedish` to the lang list in `index.ts`
       (kept `f`=French, `m`=male; `sf_`/`sm_` now resolve correctly).
-    - The `tts` binary's `list_voices` does not surface Swedish among the other
-      languages — **user fixing externally**.
+    - The `tts` binary's `list_voices` did not surface Swedish among the other
+      languages — **fixed externally & verified (2026-07-13)**: `list_voices`
+      now prints "Chatterbox voices (Swedish, via tts-cb)" with `sf_*`/`sm_*`
+      labeled "(Swedish female/male, chatterbox)". Fully resolved.
 
-- [ ] **`pace`/`speed` rejected by Chatterbox voices**
+- [ ] **`pace`/`speed` rejected by Chatterbox voices — WON'T FIX (overfitting)**
   - `tts` errors with `-s/--speed not supported for chatterbox voices` when a
     Chatterbox voice is used (`sf_*` / `sm_*`, e.g. `sf_astrid`, `sm_allan`).
     The `slow`/`fast` pace presets (and any `speed` value) therefore fail for
@@ -25,6 +27,16 @@ project (marked `external`).
   - Possible fixes: the extension could detect Chatterbox voices and skip the
     `-s` flag (or warn), or document that pace is Kokoro-only. Backend-side
     (tts-cb) this may be a hard limitation.
+  - **Verified after external update (2026-07-13):** the error message improved
+    to `tts: -s/--speed is Kokoro-only; chatterbox pace via tts-cb -p/--guidance`,
+    but the extension STILL sends `-s` to Chatterbox and fails. The functional
+    fix is still required in the EXTENSION: for Chatterbox voices (`sf_*`/`sm_*`)
+    skip `-s` and let `pace`/`pause_scale` flow through `-p` (tts-cb guidance).
+  - **Resolution (2026-07-13): WON'T FIX — overfitting.** Special-casing
+    Chatterbox in the extension to drop `-s` would overfit to one backend quirk.
+    The external update now documents the limitation inline in the error message,
+    so the behaviour is self-explanatory. Chatterbox pace can be set directly via
+    the binary if needed. Left as-is.
 
 - [x] **No instruction to infer voice from requested language (applied to `index.ts`)**
   - Fresh-session test: the local model read Swedish text with the English

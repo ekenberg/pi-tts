@@ -331,7 +331,6 @@ export default function (pi: ExtensionAPI) {
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
       "Only call tts when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
-      "Playback is background and non-blocking; a new call interrupts current speech. Use stop: true to stop everything, skip: true to jump to the next queued item, pause: true / resume: true to pause and continue, queue: true to play after the current one. Pass output_file to save a WAV instead of speaking.",
     ],
     parameters: Type.Object({
       text: Type.Optional(
