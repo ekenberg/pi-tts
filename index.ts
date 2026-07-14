@@ -25,8 +25,12 @@
  *    process exit hook guarded via globalThis so /reload doesn't stack them.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Key } from "@earendil-works/pi-tui";
 import { spawn, type ChildProcess } from "node:child_process";
 
 type ToolResult = {
@@ -199,6 +203,32 @@ function voiceInfoFor(cat: VoiceCatalog, voice: string): VoiceInfo | undefined {
   return cat.byId.get(firstId);
 }
 
+/**
+ * Read the user's `tts.toggle` keybinding override from
+ * `~/.pi/agent/keybindings.json`. Returns an array of key strings (one or
+ * more). Falls back to Ctrl+Space on any error (missing file, malformed
+ * JSON, wrong type) so the extension still loads. Pi's keybindings.json
+ * is for built-in action ids; `"tts.toggle"` is a custom id this extension
+ * reads itself, so an unknown key here is silently ignored by pi itself.
+ */
+function readToggleBinding(): string[] {
+  const fallback: string[] = [Key.ctrl("space")];
+  try {
+    const path = join(getAgentDir(), "keybindings.json");
+    if (!existsSync(path)) return fallback;
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    const v = cfg?.["tts.toggle"];
+    if (typeof v === "string" && v.length > 0) return [v];
+    if (Array.isArray(v)) {
+      const keys = v.filter((k): k is string => typeof k === "string" && k.length > 0);
+      if (keys.length > 0) return keys;
+    }
+  } catch {
+    // fall through to fallback
+  }
+  return fallback;
+}
+
 export default function (pi: ExtensionAPI) {
   // --- Background playback state: one active playback + FIFO queue ---
   let current: { child: ChildProcess; pid: number; paused: boolean; label: string } | null = null;
@@ -293,6 +323,14 @@ export default function (pi: ExtensionAPI) {
     return `Resumed (${current.label}).`;
   }
 
+  /** Toggle pause/resume. The footer indicator already reflects state, so
+   *  the keybinding handler that calls this is silent on real toggles and
+   *  only notifies if nothing is playing (one-shot feedback). */
+  function togglePlayback(): string {
+    if (!current) return "Nothing is playing.";
+    return current.paused ? resumePlayback() : pausePlayback();
+  }
+
   /**
    * Skip only the current utterance, keeping the queue. We advance the queue
    * SYNCHRONOUSLY here (rather than leaning on the async close handler) so the
@@ -384,6 +422,7 @@ export default function (pi: ExtensionAPI) {
   const transport: Array<[string, () => string]> = [
     ["tts-pause", pausePlayback],
     ["tts-resume", resumePlayback],
+    ["tts-toggle", togglePlayback],
     ["tts-skip", skipPlayback],
     [
       "tts-stop",
@@ -414,6 +453,23 @@ export default function (pi: ExtensionAPI) {
       );
     },
   });
+
+  // --- Keyboard shortcut: toggle pause/resume (user-configurable) ---
+  // The default is Ctrl+Space; override via `"tts.toggle"` in
+  // `~/.pi/agent/keybindings.json` (string or array of strings).
+  // Silent on real toggles — the footer indicator already shows ▶/⏸.
+  // Notifies only when nothing is playing, so a stray press still gives
+  // feedback that the key was received.
+  const toggleKeys = readToggleBinding();
+  for (const key of toggleKeys) {
+    pi.registerShortcut(key as Parameters<typeof pi.registerShortcut>[0], {
+      description: "TTS: toggle pause/resume",
+      handler: async (ctx) => {
+        const msg = togglePlayback();
+        if (!current) ctx.ui.notify(msg, "info");
+      },
+    });
+  }
 
   pi.registerTool({
     name: "tts",

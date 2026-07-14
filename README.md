@@ -86,9 +86,34 @@ no token cost, no misinterpretation):
 |----------------|-----------------------------------------------------|
 | `/tts-pause`   | Pause the current reading                           |
 | `/tts-resume`  | Resume a paused reading                             |
+| `/tts-toggle`  | Toggle pause/resume (same as the `Ctrl+Space` shortcut) |
 | `/tts-skip`    | Skip current utterance; queued ones continue        |
 | `/tts-stop`    | Stop everything and clear the queue                 |
 | `/tts-status`  | Report what's playing / paused and queue length     |
+
+## Keyboard shortcut
+
+`Ctrl+Space` toggles pause/resume globally (works whether you're typing in
+the prompt or not). The handler is silent on real toggles — the footer
+indicator (`▶` / `⏸`) already reflects state — and only notifies if
+nothing is playing.
+
+The key is **user-configurable** via `~/.pi/agent/keybindings.json` under
+the `tts.toggle` id (string or array of strings; first run after editing
+needs `/reload` to take effect):
+
+```json
+{
+  "tts.toggle": "f8"
+}
+```
+
+Unknown ids are silently ignored by pi's startup, so the file stays valid.
+
+**Platform caveats:** on macOS, `Ctrl+Space` is reserved by the system for
+"Select Previous Input Source" and may not reach the terminal. On Linux
+desktops, IBus/Fcitx often bind it to "toggle IME". If the key never fires,
+rebind it to something free (e.g. `f8`) using the override above.
 
 ## Parameters
 
