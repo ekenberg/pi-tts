@@ -637,7 +637,8 @@ export default function (pi: ExtensionAPI) {
         voice = entry.default_voice ?? firstVoice(entry);
         pickedVia = `language:${params.language}`;
       } else {
-        // English default. Use the catalog default (alias "personal"); omit -v if unavailable.
+        // English default: use the catalog's default_voice (whatever kokoro
+        // alias tts reports, e.g. anchor); omit -v if the catalog is unavailable.
         voice = cat?.default_voice;
         pickedVia = "default";
       }
