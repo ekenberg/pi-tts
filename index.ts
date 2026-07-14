@@ -651,7 +651,11 @@ export default function (pi: ExtensionAPI) {
         }
       }
       // A requested pace was dropped because the backend rejects it (e.g.
-      // chatterbox/Swedish). Surface it so the result line doesn't misreport.
+      // chatterbox/Swedish). When that happens we omit the pace fields from
+      // the result line entirely (below) rather than reporting them or
+      // flagging a problem: a weak model reads any "not supported" note as a
+      // fixable error and thrashes retrying other voices. The voice simply
+      // speaks at its natural pace; report a clean success and move on.
       const paceDropped =
         (reqSpeed !== undefined && speed === undefined) ||
         (reqPause !== undefined && pause === undefined);
@@ -679,11 +683,11 @@ export default function (pi: ExtensionAPI) {
             : pickedVia.startsWith("language:")
               ? `${pickedVia}→${voice}`
               : voice;
-      const settings = `voice: ${voiceLabel}${
-        params.pace ? `, pace: ${params.pace}` : ""
-      }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}${
-        paceDropped ? " (pace not supported by this voice)" : ""
-      }`;
+      const settings = paceDropped
+        ? `voice: ${voiceLabel}`
+        : `voice: ${voiceLabel}${
+            params.pace ? `, pace: ${params.pace}` : ""
+          }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}`;
 
       // File synthesis: no playback involved, stay synchronous.
       if (params.output_file) {
