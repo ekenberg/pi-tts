@@ -56,34 +56,93 @@ const PACE: Record<string, { speed?: number; pause?: number }> = {
 };
 
 /**
- * Bare-name voice resolution so humans (and dim models) can say "onyx" or
- * "isabella" instead of "am_onyx" / "bf_isabella". Built lazily from the live
- * `tts --voices` output and cached for the process. Full ids, aliases, and
- * blends bypass this entirely.
+ * Voice catalog: consumes `tts --voices --json` (machine-readable). The model
+ * never sees this — it's wrapper-internal, used to resolve bare names, look up
+ * per-language defaults, and gate backend-specific capabilities (kokoro accepts
+ * -s/-p; chatterbox does not). Loaded lazily, cached for the process; on any
+ * failure (spawn, parse, unknown schema) resolves to null and callers fall
+ * back to the old pass-through behavior.
  */
-let catalogPromise: Promise<Map<string, string[]>> | null = null;
 
-function loadVoiceCatalog(): Promise<Map<string, string[]>> {
+type LanguageEntry = {
+  backend: string;
+  speed_supported: boolean;
+  pause_scale_supported: boolean;
+  default_voice?: string;
+  voices: { female: string[]; male: string[] };
+};
+
+type VoiceInfo = {
+  id: string;
+  language: string;
+  gender: "female" | "male";
+  backend: string;
+  speedSupported: boolean;
+  pauseScaleSupported: boolean;
+};
+
+type VoiceCatalog = {
+  schema: number;
+  default_voice: string;
+  aliases: Record<string, string>;
+  languages: Record<string, LanguageEntry>;
+  // derived indexes:
+  byId: Map<string, VoiceInfo>;
+  byBare: Map<string, string[]>; // bare name -> [full ids]
+  langKeys: string[];
+};
+
+let catalogPromise: Promise<VoiceCatalog | null> | null = null;
+
+function loadVoiceCatalog(): Promise<VoiceCatalog | null> {
   if (catalogPromise) return catalogPromise;
   catalogPromise = new Promise((resolve) => {
-    const child = spawn("tts", ["--voices"]);
+    const child = spawn("tts", ["--voices", "--json"]);
     let out = "";
     child.stdout?.on("data", (d) => (out += d));
     child.stdin?.on("error", () => {});
     child.stdin?.end();
-    child.on("error", () => resolve(new Map()));
+    child.on("error", () => resolve(null));
     child.on("close", () => {
-      // Extract voice ids like `bf_isabella`; map bare name -> [full ids].
-      const byBare = new Map<string, Set<string>>();
-      const re = /\b([a-z]{2})_([a-z]+)\b/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(out)) !== null) {
-        const bare = m[2];
-        (byBare.get(bare) ?? byBare.set(bare, new Set()).get(bare)!).add(`${m[1]}_${bare}`);
+      try {
+        const raw = JSON.parse(out);
+        if (raw.schema !== 1) {
+          // Unknown schema version — refuse to guess.
+          resolve(null);
+          return;
+        }
+        const byId = new Map<string, VoiceInfo>();
+        const byBareSet = new Map<string, Set<string>>();
+        for (const [lang, entry] of Object.entries(raw.languages as Record<string, LanguageEntry>)) {
+          for (const gender of ["female", "male"] as const) {
+            for (const id of entry.voices?.[gender] ?? []) {
+              byId.set(id, {
+                id,
+                language: lang,
+                gender,
+                backend: entry.backend,
+                speedSupported: entry.speed_supported,
+                pauseScaleSupported: entry.pause_scale_supported,
+              });
+              const bare = id.replace(/^[a-z]{2}_/, "");
+              (byBareSet.get(bare) ?? byBareSet.set(bare, new Set()).get(bare)!).add(id);
+            }
+          }
+        }
+        const byBare = new Map<string, string[]>();
+        for (const [b, ids] of byBareSet) byBare.set(b, [...ids]);
+        resolve({
+          schema: raw.schema,
+          default_voice: raw.default_voice,
+          aliases: raw.aliases ?? {},
+          languages: raw.languages,
+          byId,
+          byBare,
+          langKeys: Object.keys(raw.languages),
+        });
+      } catch {
+        resolve(null); // unparseable — callers degrade gracefully
       }
-      const res = new Map<string, string[]>();
-      for (const [bare, ids] of byBare) res.set(bare, [...ids]);
-      resolve(res);
     });
   });
   return catalogPromise;
@@ -95,16 +154,49 @@ function looksBare(v: string): boolean {
 }
 
 /**
- * Resolve a possibly-bare voice to a full id. Unknown/alias -> passed through
- * unchanged (tts resolves aliases itself). Ambiguous across languages
- * (e.g. 'dora' -> ef_dora/pf_dora) -> error listing the candidates.
+ * Resolve a possibly-bare voice to a full id using the parsed JSON catalog.
+ * Unknown/alias/blend -> passed through unchanged (tts resolves aliases
+ * itself). Ambiguous across languages (e.g. 'dora' -> ef_dora/pf_dora) ->
+ * error listing the candidates.
  */
-async function resolveVoice(v: string): Promise<{ id?: string; error?: string }> {
-  if (!looksBare(v)) return { id: v };
-  const hits = (await loadVoiceCatalog()).get(v.trim().toLowerCase());
-  if (!hits || hits.length === 0) return { id: v };
+async function resolveBare(
+  v: string,
+  cat: VoiceCatalog,
+): Promise<{ id?: string; error?: string }> {
+  if (!looksBare(v)) return { id: v }; // full id / alias / blend — pass through
+  const hits = cat.byBare.get(v.trim().toLowerCase());
+  if (!hits || hits.length === 0) return { id: v }; // unknown — let tts resolve/error
   if (hits.length === 1) return { id: hits[0] };
   return { error: `Voice '${v}' is ambiguous: ${hits.join(", ")}. Pass the full name.` };
+}
+
+// A few convenience aliases; canonical keys are the full language names.
+const LANG_ALIASES: Record<string, string> = {
+  en: "American English",
+  english: "American English",
+  sv: "Swedish",
+  se: "Swedish",
+};
+
+function matchLanguage(cat: VoiceCatalog, lang: string): LanguageEntry | undefined {
+  const key = lang.trim().toLowerCase();
+  for (const k of cat.langKeys) if (k.toLowerCase() === key) return cat.languages[k];
+  const aliased = LANG_ALIASES[key];
+  if (aliased && cat.languages[aliased]) return cat.languages[aliased];
+  for (const k of cat.langKeys) if (k.toLowerCase().startsWith(key)) return cat.languages[k];
+  return undefined;
+}
+
+function firstVoice(entry: LanguageEntry): string | undefined {
+  return entry.voices.female[0] ?? entry.voices.male[0];
+}
+
+// Resolve a voice string (id, alias, or blend) to its capability info.
+function voiceInfoFor(cat: VoiceCatalog, voice: string): VoiceInfo | undefined {
+  if (cat.byId.has(voice)) return cat.byId.get(voice);
+  const expansion = cat.aliases[voice] ?? voice; // alias -> expansion, else itself
+  const firstId = expansion.split(",")[0].split(":")[0].trim();
+  return cat.byId.get(firstId);
 }
 
 export default function (pi: ExtensionAPI) {
@@ -327,7 +419,12 @@ export default function (pi: ExtensionAPI) {
     name: "tts",
     label: "Text to Speech",
     description:
-      "Speak text aloud using the local `tts` command (Kokoro/piper-backed neural TTS) — only when the user explicitly asks for audio. Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing. VOICE/LANGUAGE: if the user asks for a non-English language (e.g. Swedish), you MUST set `voice` to a voice of that language (Swedish: `sf_*`/`sm_*`, French: `ff_*`) — never the English default. For English you may omit `voice` to use the default. If they name a specific voice, use it. TEXT: before speaking, rewrite the text into natural speech — expand acronyms/numbers the TTS would mispronounce (e.g. `MOE` -> 'mixture of experts', `1M` -> 'one million') and strip markdown like `* _ #` — unless the user says 'verbatim'.",
+      "Speak text aloud using the local `tts` command — only when the user explicitly asks for audio. " +
+      "Playback runs in the background and does not block; a new call interrupts current speech (or plays after it with queue: true), and stop: true stops it. " +
+      "Supports voice selection, speed, pause scaling, and saving to a WAV file instead of playing. " +
+      "VOICE: for non-English text, set `language` (e.g. 'Swedish', 'French') and the tool picks an appropriate voice — do NOT set `voice` unless the user names a specific voice. " +
+      "For English, omit both to use the default. " +
+      "TEXT: before speaking, rewrite the text into natural speech — expand acronyms/numbers the TTS would mispronounce (e.g. 'MOE' -> 'mixture of experts', '1M' -> 'one million') and strip markdown like '* _ #' — unless the user says 'verbatim'.",
     promptSnippet: "Speak text aloud via the local tts command",
     promptGuidelines: [
       "Only call the tts tool when the user explicitly asks for audio ('read aloud', 'speak', 'say it', 'use tts') — or continues an active listening session ('stop', 'skip that', 'queue this next'). Plain 'tell me X' or 'what is X' means a normal text answer, NOT speech.",
@@ -339,17 +436,24 @@ export default function (pi: ExtensionAPI) {
       input_file: Type.Optional(
         Type.String({
           description:
-            "Read text from this file instead of the text parameter (maps to tts -f). Takes precedence over text if both are given.",
+            "Read text from this file instead of the text parameter. Takes precedence over text if both are given.",
         }),
       ),
       voice: Type.Optional(
         Type.String({
           description:
-            "Voice name/alias or blend, e.g. 'am_adam', 'af_sarah', or 'af_sarah:60,am_adam:40'. REQUIRED for non-English text: set this to a voice of that language (Swedish: sf_*/sm_*, French: ff_*, Spanish: ef_*/em_*, ...) — otherwise the English default is used. For English you may leave it empty to use the default. " +
-            "Naming scheme: [lang][gender]_name where lang = a=American, b=British, e=Spanish, f=French, h=Hindi, i=Italian, j=Japanese, p=Portuguese, s=Swedish, z=Chinese; " +
-            "gender = f=female, m=male (e.g. 'bf_emma' = British female). Built-in aliases (resolved by the binary): 'personal', 'calm', 'anchor'. " +
-            "You may pass just the bare name (e.g. 'onyx', 'isabella', 'sarah') — the prefix is optional and resolved automatically. " +
-            "Don't know the exact name? Use list_voices: true to fetch the live catalog.",
+            "Specific voice name or alias. Only set this when the user names a particular voice " +
+            "(e.g. 'onyx', 'allan', 'af_sarah', or a blend 'af_sarah:60,am_adam:40'); the tool resolves " +
+            "bare names and aliases automatically. Otherwise leave empty and set `language` for " +
+            "non-English text, or leave both empty for the English default.",
+        }),
+      ),
+      language: Type.Optional(
+        Type.String({
+          description:
+            "Speak with a voice of this language (e.g. 'Swedish', 'French', 'American English'). " +
+            "Set this for non-English text; the tool selects an appropriate voice for that language. " +
+            "Leave empty for the English default. Do not set `voice` at the same time unless the user named a specific voice.",
         }),
       ),
       list_voices: Type.Optional(
@@ -390,7 +494,7 @@ export default function (pi: ExtensionAPI) {
       ),
       output_file: Type.Optional(
         Type.String({
-          description: "Save audio to this WAV file instead of speaking aloud (maps to tts -o).",
+          description: "Save audio to this WAV file instead of speaking aloud.",
         }),
       ),
       stop: Type.Optional(
@@ -494,18 +598,63 @@ export default function (pi: ExtensionAPI) {
 
       // Resolve pace preset; explicit numeric params override it.
       const preset = params.pace ? PACE[params.pace] : undefined;
-      const speed = params.speed ?? preset?.speed;
-      const pause = params.pause_scale ?? preset?.pause;
+      let speed = params.speed ?? preset?.speed;
+      let pause = params.pause_scale ?? preset?.pause;
+      const reqSpeed = speed; // remember what was requested, before capability gating
+      const reqPause = pause;
 
-      // Resolve bare voice names ('onyx' -> 'am_onyx'). Ambiguous -> error.
-      let voice = params.voice;
+      // --- Voice selection: explicit voice > language > English default ---
+      const cat = await loadVoiceCatalog();
+      let voice: string | undefined = params.voice;
+      let pickedVia = "default";
+
       if (voice) {
-        const r = await resolveVoice(voice);
-        if (r.error) {
-          return { content: [{ type: "text", text: r.error }], isError: true, details: {} };
+        // Explicit override (user named a voice). Resolve bare names via the catalog.
+        if (cat) {
+          const r = await resolveBare(voice, cat);
+          if (r.error) {
+            return { content: [{ type: "text", text: r.error }], isError: true, details: {} };
+          }
+          voice = r.id;
         }
-        voice = r.id;
+        pickedVia = "voice";
+      } else if (params.language) {
+        if (!cat) {
+          return {
+            content: [{ type: "text", text: "Voice catalog unavailable; cannot resolve language. Set `voice` explicitly or retry." }],
+            isError: true,
+            details: {},
+          };
+        }
+        const entry = matchLanguage(cat, params.language);
+        if (!entry) {
+          return {
+            content: [{ type: "text", text: `Unknown language '${params.language}'. Available: ${cat.langKeys.join(", ")}` }],
+            isError: true,
+            details: {},
+          };
+        }
+        voice = entry.default_voice ?? firstVoice(entry);
+        pickedVia = `language:${params.language}`;
+      } else {
+        // English default. Use the catalog default (alias "personal"); omit -v if unavailable.
+        voice = cat?.default_voice;
+        pickedVia = "default";
       }
+
+      // --- Capability gating: drop -s/-p the selected voice's backend rejects ---
+      if (voice && cat) {
+        const info = voiceInfoFor(cat, voice);
+        if (info) {
+          if (!info.speedSupported) speed = undefined;
+          if (!info.pauseScaleSupported) pause = undefined;
+        }
+      }
+      // A requested pace was dropped because the backend rejects it (e.g.
+      // chatterbox/Swedish). Surface it so the result line doesn't misreport.
+      const paceDropped =
+        (reqSpeed !== undefined && speed === undefined) ||
+        (reqPause !== undefined && pause === undefined);
 
       // Map friendly parameters -> tts CLI flags. This is the ONLY place the
       // flag syntax exists; the model never sees it.
@@ -523,10 +672,18 @@ export default function (pi: ExtensionAPI) {
 
       const spoken = useFile ? `file '${params.input_file}'` : `${params.text!.length} chars`;
       const voiceLabel =
-        voice && voice !== params.voice ? `${params.voice}→${voice}` : voice ?? "binary default";
+        voice == null
+          ? "binary default"
+          : pickedVia === "voice" && voice !== params.voice
+            ? `${params.voice}→${voice}`
+            : pickedVia.startsWith("language:")
+              ? `${pickedVia}→${voice}`
+              : voice;
       const settings = `voice: ${voiceLabel}${
         params.pace ? `, pace: ${params.pace}` : ""
-      }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}`;
+      }, speed: ${speed ?? 1.0}, pause_scale: ${pause ?? 1.0}${
+        paceDropped ? " (pace not supported by this voice)" : ""
+      }`;
 
       // File synthesis: no playback involved, stay synchronous.
       if (params.output_file) {
